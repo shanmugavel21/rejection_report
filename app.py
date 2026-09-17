@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-import psycopg2
+import psycopg
 from datetime import date
-import psycopg2
+ 
 
 
 # =========================================================
