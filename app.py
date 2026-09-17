@@ -23,11 +23,11 @@ def get_connection():
     return psycopg.connect(
         host=st.secrets["DB_HOST"],
         port=st.secrets["DB_PORT"],
-        database=st.secrets["DB_NAME"],
+        dbname=st.secrets["DB_NAME"],
         user=st.secrets["DB_USER"],
         password=st.secrets["DB_PASSWORD"],
         sslmode="require"
-    )   
+    )
 
 
 # =========================================================
@@ -213,7 +213,6 @@ def save_data(report_date, shift, data):
             )
 
         if rows:
-
             cursor.executemany(
                 insert_query,
                 rows
@@ -222,12 +221,10 @@ def save_data(report_date, shift, data):
         conn.commit()
 
     except Exception:
-
         conn.rollback()
         raise
 
     finally:
-
         cursor.close()
         conn.close()
 
@@ -266,12 +263,10 @@ def delete_shift_data(report_date, shift):
         return deleted_rows
 
     except Exception:
-
         conn.rollback()
         raise
 
     finally:
-
         cursor.close()
         conn.close()
 
@@ -361,10 +356,6 @@ daily_lookup = {
 
 if show_daily_total:
 
-    # -----------------------------------------------------
-    # SHOW ONLY FAULT + DAILY TOTAL
-    # -----------------------------------------------------
-
     daily_table = []
 
     for section, fault in FAULTS:
@@ -411,10 +402,6 @@ if show_daily_total:
 
 else:
 
-    # -----------------------------------------------------
-    # CREATE ENTRY TABLE
-    # -----------------------------------------------------
-
     table_data = []
 
     for section, fault in FAULTS:
@@ -443,9 +430,9 @@ else:
         f"✏️ Enter Rejection — {shift}"
     )
 
-    # -----------------------------------------------------
+    # =====================================================
     # FORM
-    # -----------------------------------------------------
+    # =====================================================
 
     with st.form(
         "rejection_form",
@@ -496,9 +483,10 @@ else:
             use_container_width=True
         )
 
-    # -----------------------------------------------------
+
+    # =====================================================
     # SAVE
-    # -----------------------------------------------------
+    # =====================================================
 
     if save_button:
 
