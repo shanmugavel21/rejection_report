@@ -20,7 +20,7 @@ st.set_page_config(
 # =========================================================
 
 def get_connection():
-    return psycopg2.connect(
+    return psycopg.connect(
         host=st.secrets["DB_HOST"],
         port=st.secrets["DB_PORT"],
         database=st.secrets["DB_NAME"],
