@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import psycopg2
 from datetime import date
+import psycopg2
 
 
 # =========================================================
