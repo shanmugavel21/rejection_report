@@ -4,20 +4,12 @@ import psycopg
 from datetime import date
 
 
-# =========================================================
-# PAGE CONFIG
-# =========================================================
-
 st.set_page_config(
     page_title="Fault Report",
     page_icon="📋",
     layout="wide"
 )
 
-
-# =========================================================
-# DATABASE CONNECTION
-# =========================================================
 
 def get_connection():
     return psycopg.connect(
@@ -30,9 +22,9 @@ def get_connection():
     )
 
 
-# =========================================================
+# --------------------------------------------------
 # FAULT LIST
-# =========================================================
+# --------------------------------------------------
 
 FAULTS = [
     ("Conveyor", "Frame Coating Fault - MS"),
@@ -74,213 +66,213 @@ FAULTS = [
 ]
 
 
-# Fault → Section
 FAULT_TO_SECTION = {
     fault: section
     for section, fault in FAULTS
 }
 
 
-# =========================================================
-# LOAD CURRENT SHIFT DATA
-# =========================================================
+# --------------------------------------------------
+# LOAD SELECTED SHIFT DATA
+# --------------------------------------------------
 
 @st.cache_data(ttl=5)
 def load_shift_data(report_date, shift):
 
-    conn = get_connection()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
 
-    query = """
-        SELECT
-            fault_name,
-            supplier_rejection,
-            process_rejection
-        FROM rejection_register
-        WHERE report_date = %s
-        AND shift = %s
-    """
+            cur.execute(
+                """
+                SELECT
+                    fault_name,
+                    supplier_rejection,
+                    process_rejection
+                FROM rejection_register
+                WHERE report_date = %s
+                AND shift = %s
+                """,
+                (report_date, shift)
+            )
 
-    df = pd.read_sql_query(
-        query,
-        conn,
-        params=(report_date, shift)
+            rows = cur.fetchall()
+
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "fault_name",
+            "supplier_rejection",
+            "process_rejection"
+        ]
     )
 
-    conn.close()
 
-    return df
-
-
-# =========================================================
+# --------------------------------------------------
 # LOAD DAILY TOTAL
-# =========================================================
+# --------------------------------------------------
 
 @st.cache_data(ttl=5)
 def load_daily_data(report_date):
 
-    conn = get_connection()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
 
-    query = """
-        SELECT
-            fault_name,
-            COALESCE(SUM(supplier_rejection), 0)
-            +
-            COALESCE(SUM(process_rejection), 0)
-            AS daily_total
-        FROM rejection_register
-        WHERE report_date = %s
-        GROUP BY fault_name
-    """
+            cur.execute(
+                """
+                SELECT
+                    fault_name,
+                    COALESCE(SUM(supplier_rejection), 0)
+                    +
+                    COALESCE(SUM(process_rejection), 0)
+                    AS daily_total
+                FROM rejection_register
+                WHERE report_date = %s
+                GROUP BY fault_name
+                """,
+                (report_date,)
+            )
 
-    df = pd.read_sql_query(
-        query,
-        conn,
-        params=(report_date,)
+            rows = cur.fetchall()
+
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "fault_name",
+            "daily_total"
+        ]
     )
 
-    conn.close()
 
-    return df
-
-
-# =========================================================
+# --------------------------------------------------
 # SAVE DATA
-# =========================================================
+# --------------------------------------------------
 
 def save_data(report_date, shift, data):
 
-    conn = get_connection()
-    cursor = conn.cursor()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
 
-    try:
+            try:
 
-        # Remove old records for same date + shift
-        cursor.execute(
-            """
-            DELETE FROM rejection_register
-            WHERE report_date = %s
-            AND shift = %s
-            """,
-            (report_date, shift)
-        )
-
-        insert_query = """
-            INSERT INTO rejection_register
-            (
-                report_date,
-                shift,
-                section,
-                fault_name,
-                supplier_rejection,
-                process_rejection
-            )
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """
-
-        rows = []
-
-        for _, row in data.iterrows():
-
-            fault = row["Fault"]
-
-            supplier = (
-                0
-                if pd.isna(row["Supplier"])
-                else int(row["Supplier"])
-            )
-
-            process = (
-                0
-                if pd.isna(row["Process"])
-                else int(row["Process"])
-            )
-
-            # Empty row → don't save
-            if supplier == 0 and process == 0:
-                continue
-
-            section = FAULT_TO_SECTION[fault]
-
-            rows.append(
-                (
-                    report_date,
-                    shift,
-                    section,
-                    fault,
-                    supplier,
-                    process
+                # Delete old data for same date + shift
+                cursor.execute(
+                    """
+                    DELETE FROM rejection_register
+                    WHERE report_date = %s
+                    AND shift = %s
+                    """,
+                    (report_date, shift)
                 )
-            )
 
-        if rows:
-            cursor.executemany(
-                insert_query,
-                rows
-            )
+                insert_query = """
+                    INSERT INTO rejection_register
+                    (
+                        report_date,
+                        shift,
+                        section,
+                        fault_name,
+                        supplier_rejection,
+                        process_rejection
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """
 
-        conn.commit()
+                rows = []
 
-    except Exception:
-        conn.rollback()
-        raise
+                for _, row in data.iterrows():
 
-    finally:
-        cursor.close()
-        conn.close()
+                    fault = row["Fault"]
 
-    # Clear cache
+                    supplier = (
+                        0
+                        if pd.isna(row["Supplier"])
+                        else int(row["Supplier"])
+                    )
+
+                    process = (
+                        0
+                        if pd.isna(row["Process"])
+                        else int(row["Process"])
+                    )
+
+                    # Skip zero values
+                    if supplier == 0 and process == 0:
+                        continue
+
+                    section = FAULT_TO_SECTION[fault]
+
+                    rows.append(
+                        (
+                            report_date,
+                            shift,
+                            section,
+                            fault,
+                            supplier,
+                            process
+                        )
+                    )
+
+                if rows:
+                    cursor.executemany(
+                        insert_query,
+                        rows
+                    )
+
+                conn.commit()
+
+            except Exception:
+                conn.rollback()
+                raise
+
+    # Clear cached data
     load_shift_data.clear()
     load_daily_data.clear()
 
 
-# =========================================================
-# DELETE SPECIFIC DATE + SHIFT
-# =========================================================
+# --------------------------------------------------
+# DELETE SHIFT DATA
+# --------------------------------------------------
 
 def delete_shift_data(report_date, shift):
 
-    conn = get_connection()
-    cursor = conn.cursor()
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
 
-    try:
+            try:
 
-        cursor.execute(
-            """
-            DELETE FROM rejection_register
-            WHERE report_date = %s
-            AND shift = %s
-            """,
-            (report_date, shift)
-        )
+                cursor.execute(
+                    """
+                    DELETE FROM rejection_register
+                    WHERE report_date = %s
+                    AND shift = %s
+                    """,
+                    (report_date, shift)
+                )
 
-        deleted_rows = cursor.rowcount
+                deleted_rows = cursor.rowcount
 
-        conn.commit()
+                conn.commit()
 
-        load_shift_data.clear()
-        load_daily_data.clear()
+            except Exception:
+                conn.rollback()
+                raise
 
-        return deleted_rows
+    load_shift_data.clear()
+    load_daily_data.clear()
 
-    except Exception:
-        conn.rollback()
-        raise
-
-    finally:
-        cursor.close()
-        conn.close()
+    return deleted_rows
 
 
-# =========================================================
-# TITLE
-# =========================================================
+# --------------------------------------------------
+# PAGE TITLE
+# --------------------------------------------------
 
 st.title("📋 Daily Rejection Report")
 
 
-# =========================================================
+# --------------------------------------------------
 # DATE + SHIFT
-# =========================================================
+# --------------------------------------------------
 
 col1, col2 = st.columns(2)
 
@@ -290,6 +282,7 @@ with col1:
         "Date",
         value=date.today()
     )
+
 
 with col2:
 
@@ -303,9 +296,9 @@ with col2:
     )
 
 
-# =========================================================
-# SHOW DAILY TOTAL OPTION
-# =========================================================
+# --------------------------------------------------
+# DAILY TOTAL OPTION
+# --------------------------------------------------
 
 show_daily_total = st.checkbox(
     "Show Daily Total",
@@ -313,23 +306,15 @@ show_daily_total = st.checkbox(
 )
 
 
-# =========================================================
-# LOAD DATA
-# =========================================================
+# --------------------------------------------------
+# LOAD SELECTED SHIFT DATA
+# --------------------------------------------------
 
 shift_data = load_shift_data(
     report_date,
     shift
 )
 
-daily_data = load_daily_data(
-    report_date
-)
-
-
-# =========================================================
-# LOOKUP CURRENT SHIFT DATA
-# =========================================================
 
 shift_lookup = {
     row["fault_name"]: (
@@ -340,21 +325,23 @@ shift_lookup = {
 }
 
 
-# =========================================================
-# DAILY TOTAL LOOKUP
-# =========================================================
-
-daily_lookup = {
-    row["fault_name"]: int(row["daily_total"])
-    for _, row in daily_data.iterrows()
-}
-
-
-# =========================================================
+# --------------------------------------------------
 # DAILY TOTAL MODE
-# =========================================================
+# --------------------------------------------------
 
 if show_daily_total:
+
+    # IMPORTANT:
+    # Daily query runs ONLY when checkbox is ON.
+
+    daily_data = load_daily_data(
+        report_date
+    )
+
+    daily_lookup = {
+        row["fault_name"]: int(row["daily_total"])
+        for _, row in daily_data.iterrows()
+    }
 
     daily_table = []
 
@@ -396,9 +383,9 @@ if show_daily_total:
     )
 
 
-# =========================================================
+# --------------------------------------------------
 # DATA ENTRY MODE
-# =========================================================
+# --------------------------------------------------
 
 else:
 
@@ -429,10 +416,6 @@ else:
     st.subheader(
         f"✏️ Enter Rejection — {shift}"
     )
-
-    # =====================================================
-    # FORM
-    # =====================================================
 
     with st.form(
         "rejection_form",
@@ -470,9 +453,7 @@ else:
                 )
             },
 
-            disabled=[
-                "Fault"
-            ],
+            disabled=["Fault"],
 
             key="rejection_table"
         )
@@ -484,9 +465,9 @@ else:
         )
 
 
-    # =====================================================
-    # SAVE
-    # =====================================================
+    # --------------------------------------------------
+    # SAVE BUTTON
+    # --------------------------------------------------
 
     if save_button:
 
@@ -512,13 +493,15 @@ else:
             )
 
 
-# =========================================================
+# --------------------------------------------------
 # DELETE SECTION
-# =========================================================
+# --------------------------------------------------
 
 st.divider()
 
-st.subheader("🗑️ Delete Saved Data")
+st.subheader(
+    "🗑️ Delete Saved Data"
+)
 
 st.warning(
     f"This will permanently delete all records for "
