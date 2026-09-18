@@ -279,9 +279,10 @@ col1, col2 = st.columns(2)
 with col1:
 
     report_date = st.date_input(
-        "Date",
-        value=date.today()
-    )
+    "Date",
+    value=date.today(),
+    format="DD/MM/YYYY"
+)
 
 
 with col2:
